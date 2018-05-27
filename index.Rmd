@@ -1,0 +1,226 @@
+---
+title: "Bike accident in Geneva"
+output: html_document
+author: Giacomo Longhi
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+library("tidyverse")
+library("knitr")
+library("ggplot2")
+library("lubridate")
+library("gapminder")
+library("modelr")
+library("broom")
+library("ggrepel")
+library("maps")
+library("mapdata")
+library("purrr")
+
+accident_data <- read_csv2("../data/OTC_ACCIDENTS.csv")
+bikePath_data <- read_csv2("../data/OTC_AMENAG_2ROUES.csv")
+```
+
+<h3>Overview and Motivation:</h3>
+
+The bicycle is one of the best transport in cities. Several studies show that it’s the fastest way to move in center. However, the cyclist don’t ever respect the traffic laws and this make the other road users. They say that the bicycle are dangerous and for example in Geneva are sometimes called “cycloterrorist”. The motivation of this study is to analyze the situation in Geneva and look at the road accident where a bicycle is involved. A further motivation is the lack of datas and documentation about it. This is important because many people say they don’t ride bicycle because it is too dangerous in town. The newspaper Le Temps published in may 2015 that Geneva and Zurich are dangerous for the bicycle however the half of their road have bike path (https://www.letemps.ch/suisse/zurich-geneve-dangereuses-velos). The scope is to look at the situation and with the datas from the Sytème d’information du territoire de Genève (SITG) describe the reality of the road accident with bicycle.<br> 
+The lack of studies about the bikers in Geneva and the fact that I am a bike rider make me choose this kind of project. With the availability of open-datas from the SITG, I was curious to know the reality of the bike accidents in the city where I grew up and I cycled for many years and even today. The possibility to link the accident with the bike path is maybe a new way to understand the reality of the road for the cyclist.
+
+###Initial Questions: 
+
+The main question that this study tried to respond were:<br>
+- how many accident and how they happened in this past year?<br>
+- How is the evolution of those accident? More, less?<br>
+- Do the accident happened in road with or without bike path?<br>
+
+
+###Datas:
+
+The datas come from the information system of the Geneva territory (SITG). It is a state organization that is based on a network of public partners whose aim is to coordinate, centralize and widely disseminate data relating to the Geneva area.All the datas can be download at this address (https://ge.ch/sitg/). For the study, we particularly looked at to dataset.<br>
+The first one is all the datas about the cycle paths, the date of their creation, their lengths and other informations. 
+
+```{r, echo=FALSE}
+names(bikePath_data)
+```
+
+The second dataset is the register of all the accidents that happens in Geneva with informations and coordinates. 
+
+```{r, echo=FALSE}
+names(accident_data)
+```
+
+The datas needed a lot of preparation and clean up for the use of the study and Rcode. For example, the coordinates of the accidents are stocked with geompoint and they have to be tranformed in lat/long to be able to display them on the map.
+```{r, echo=FALSE}
+# accidents
+
+accident_data$NB_BICYCLETTES<-as.numeric(accident_data$NB_BICYCLETTES)
+accident_data <- mutate(accident_data, DATE_ = as.Date(DATE_))
+accident_data <- mutate(accident_data, month = month(DATE_))
+
+annee_factor <- factor(accident_data$ANNEE)
+  
+  # tried to change a lot of columns but couldn't manage to merge the transformed data to the main dataset 
+  accident_data2 <- filter(accident_data)
+  
+  accident_data2 <- accident_data2[ , grepl( "^NB|^ID" , names( accident_data2 ) ) ]
+  accident_data2 <- accident_data2[,-19]
+  accident_data2 <- as.data.frame(lapply(accident_data2, as.numeric))
+
+#filter(accident_data)
+
+#accidents vélo
+accident_bicycle <- filter(accident_data, NB_BICYCLETTES > 0 | as.numeric(NB_VAE_25) > 0 | as.numeric(NB_VAE_45) > 0)
+
+# piste cyclable
+
+bikePath_data$SHAPE.LEN<-as.numeric(bikePath_data$SHAPE.LEN)
+#filter(bikePath_data)
+```
+
+## Analysis:
+
+The first part of the analysis is to see how the evolution of the cycle path until 1980.This first plot shows the number of kilometers of bike path created each year and filled with the differents type of paths. We can see that there is a lot of path created in the period 2010-2011 that can be explain with the voting of an initiative promotting the non-motorized traffic.
+
+```{r, echo=FALSE}
+
+filter(bikePath_data, REALISATION > 1980)%>%
+  group_by(REALISATION, TYPE_AMENAGEMENT)%>%
+  summarise(nb_km=(sum(SHAPE.LEN)/1000))%>%
+  ggplot() + aes(x=REALISATION, y=nb_km, fill=TYPE_AMENAGEMENT) + geom_bar(stat = "identity") + ggtitle("Bike Path realization in km") + xlab("Year of realization") + ylab("Km of path")
+
+```
+
+After looking at the road situation, we will analyze the accidents that happend in Geneva until 2009. Firstable here is the plots of all the accident per year and the accident where at least one bike has been involved.
+
+
+```{r, echo=FALSE}
+# all accidents filled by consequences
+filter(accident_data)%>%
+  group_by(ANNEE, CONSEQUENCES)%>%
+  summarise(nb_accident = n())%>%
+  ggplot() + geom_bar(aes(x=ANNEE, y=nb_accident, fill=CONSEQUENCES),stat = "identity") + ggtitle("All accidents in Geneva") + xlab("Year") + ylab("Count")
+
+# accident with bicycle involved
+filter(accident_bicycle)%>%
+  group_by(ANNEE, CONSEQUENCES)%>%
+  summarise(nb_accident = n())%>%
+  ggplot() + geom_bar(aes(x=ANNEE, y=nb_accident, fill=CONSEQUENCES),stat = "identity") + ggtitle("Bike accidents in Geneva") + xlab("Year") + ylab("Count")
+
+#percent of bike accident vs all accident
+ba <- filter(accident_data)%>%
+  group_by(ANNEE)%>%
+  summarise(all_accident = n(), bike_accident = sum((NB_BICYCLETTES > 0) | (as.numeric(NB_VAE_25)>0) | (as.numeric(NB_VAE_45)>0)), percent_bike = (bike_accident/all_accident)*100)
+kable(ba)
+```
+
+We can see that the accident where a bike as been involved stay stable and is less than 8% of the accidents. An another things that this plot underlie is the gravity of the accidents. The proportion of the injured people is higher when a bike is involved than the other accidents where a majority is just damaged materials. However, this difference can be in part explain that the police isn't always called when bike are involved in "small accident".<br>
+This difference of gravity support the further analysis of the bike accident. During discussions about the bike with other people, I remark that a lot of them says that with the elecrtic bike are the worst. So I wanted to see if we can observe more accident this past year than earlier. In the table below, some explaination of the datas. The number after the elctric_bike explain at wich speed the assitance can help the biker (the bike with 45 have to wear a licence plate). And the second part of the table is the number of bicycle involved (could be more than one bike in an accident).  
+
+####Bike accident per year
+```{r, echo=FALSE}
+# number bike accident with bike category
+acc_bicPerYear <- filter(accident_bicycle)%>%
+      group_by(ANNEE)%>%
+      summarise(nb_accident = n(), bicycle= sum(NB_BICYCLETTES > 0), electric_bike25 = sum(as.numeric(NB_VAE_25)>0), electric_bike45 = sum(as.numeric(NB_VAE_45)>0), percent_ebike = ((electric_bike25+electric_bike45)/nb_accident)*100, nb_bicycle = sum(NB_BICYCLETTES), nb_ebike25 = sum(as.numeric(NB_VAE_25)), nb_ebike45 = sum(as.numeric(NB_VAE_45)))
+
+kable(acc_bicPerYear)
+
+#plot bike accident
+filter(accident_bicycle)%>%
+  group_by(ANNEE, month)%>%
+  summarise(nb_accident = n())%>%
+  ggplot() +  aes(x = month, y=nb_accident, fill=ANNEE, colour=factor(ANNEE)) + geom_line() + xlim("1"="janvier", "2"="fevrier", "3"="mars", "4"="avril", "5"="mai", "6"="juin", "7"="juillet", "8"="août", "9"="septembre", "10"="octobre", "11"="novembre", "12"="décembre") + theme(axis.text.x = element_text (face="bold", angle=45)) + ggtitle("Bike accidents") + labs(x = "",  y = "number of accident")  + labs(colour= "Year")
+```
+
+The number of accident increased between 2010 and 2015, than is stabilized around the 245 accidents per year. This increase can be explain with the fact that there are more accidents in general and more bikers every year, but we can't find statistics or number of the cyclist's count. The lastest estimation that can be found is from 2011 with 19'200 bikes calculated at the peak hours. We can also see that the proportion of electric bike increased but remain low in confront of the regular bike. The percent is not really relevant because of the few numbers of electric bike. <br>
+In a more detailed plot, we can see the accident each month and the prediction. All the years follows the same sketch, the accident increase from january to juni and than decrease. This can be explain by the seasonal pattern and the fact that the priod may-july is when there are the most cyclist in the roads. A grand part of them are cyclist that use just those months the bycicle and are more probability to be involved in an accident.
+
+```{r, echo=FALSE}
+
+#accident each mont/year with prediction
+acc_predict <- filter(accident_bicycle)%>%
+      group_by(ANNEE, month)%>%
+      summarise(nb_accident = n())
+#model
+model_month <- loess(nb_accident ~ month+ANNEE, data = acc_predict)
+    
+#Prediction
+(grid <- acc_predict %>% data_grid(month) %>% add_predictions(model_month))
+
+ggplot(acc_predict, aes(month, nb_accident)) + geom_bar(stat = "identity", width=0.7) + geom_line(aes(y = pred), data = grid, size=1, color="red")+ xlim("1"="jan", "2"="feb", "3"="mar", "4"="apr", "5"="may", "6"="jun", "7"="jul", "8"="aug", "9"="sep", "10"="oct", "11"="nov", "12"="dec") + theme(axis.text.x = element_text (face="bold", angle=75)) + ggtitle("Bike accidents") + facet_wrap(~ ANNEE)
+```
+
+
+The cause of those accident are varied, but we can see in those plot some interressant things. For example, the road condition haven't a big impact with the accidents as we could thought, because we can see that the large majority of the accident happens when the road is dry. This large difference can be explain by the fact that there are more bikers when the wheater is sunny and the less number of rainy day. An another factor can be the fact that when the road is wet, the bikers are more cautious.
+
+```{r, echo=FALSE}
+# Selon condition de la route
+filter(accident_bicycle)%>%
+  group_by(ANNEE, ETAT_ROUTE)%>%
+  summarise(nb_accident = n())%>%
+  ggplot() + geom_bar(aes(x=ANNEE, y=nb_accident, fill=ETAT_ROUTE), stat = "identity", width=0.7)
+```
+
+Unfortunatly, the datas don't contain the responsable of the accident, but we can see in the next plot the different categories in wich a bike accident can be sorted. There isn't a category that stands out of the other even if the category "skid or loss of control" seems to increase each year.
+
+```{r, echo=FALSE}
+# Selon group accident
+filter(accident_bicycle)%>%
+  group_by(ANNEE, GROUPE_ACCIDENT)%>%
+  summarise(nb_accident = n())%>%
+  ggplot() + geom_bar(aes(x=ANNEE, y=nb_accident, fill=GROUPE_ACCIDENT), stat = "identity", width=0.7)+ labs(fill= "categories")
+
+```
+
+After analyzing how many accidents happens and try to understand why, we can see the consequences of those accident. Like I said before, we don't know who is responasable of those accident nor how they really have taken place. But the datas can illustrate the gravity of those accidents. Firstable, we will analyze the accident between the bicycle and the pedestrians. We can see that only 1 death in 2017 and the majority of the accidents does finish with injuries. The number of child involved is stable and in the table we make a difference between child and child going/returning from school.
+
+#### Bike accident with people
+```{r, echo=FALSE}
+#accident with people
+people_acc <- filter(accident_bicycle, as.numeric(NB_PIETONS)>0)%>%
+  group_by(ANNEE)%>%
+  summarise(
+    nb_accident = n(),
+    pedestrian = sum(as.numeric(NB_PIETONS)),
+    child = sum(as.numeric(NB_ENFANTS_IMPLIQUES)),
+    child_school = sum(as.numeric(NB_ENFANTS_ECOLE)),
+    senior = sum(as.numeric(NB_SENIORS)),
+    slight_injury = sum(as.numeric(NB_BLESSES_LEGERS)),
+    serious_injury = sum(as.numeric(NB_BLESSES_GRAVES)),
+    dead = sum(as.numeric(NB_TUES)))
+kable(people_acc)
+```
+
+When we look at the accident with other vehicles, we can be surprise with the amount of accidents with motorbike. It can be explain by the fact that motorbike use, even if it's not allow, the bike paths or the bus road.
+
+#### Bike accident with other vehicles
+```{r, echo=FALSE}
+
+vhc_acc <- filter(accident_bicycle, as.numeric(NB_PIETONS) == 0)%>%
+  group_by(ANNEE)%>%
+  summarise(
+    nb_accident = n(),
+    cyclomoteur = sum(as.numeric(NB_CYCLOMOTEURS)),
+    motos = sum(as.numeric(NB_MOTOS_50)| as.numeric(NB_MOTOS_125) |as.numeric(NB_MOTOS_11KW)),
+    voitures = sum(as.numeric(NB_VOITURES_TOURISME) | as.numeric(NB_VOITURES_LIVRAISON)),
+    camions = sum(as.numeric(NB_CAMIONS)),
+    public_transport = sum(as.numeric(NB_BUS)| as.numeric(NB_TRAINS) |as.numeric(NB_TC)),
+    slight_injury = sum(as.numeric(NB_BLESSES_LEGERS)),
+    serious_injury = sum(as.numeric(NB_BLESSES_GRAVES)),
+    dead = sum(as.numeric(NB_TUES)))
+kable(vhc_acc)
+
+```
+
+
+##Handicap for analysis
+
+Unfortunately, I couldn't do all the analysis that I wanted to do. Even if I could answer to two of my initials questions, I couldn't link the bike path to the accident. The reason is that the data stored the localization of the accident with coordinate that aren’t lat/long. Until the end I tried to resolve but I couldn't manage to convert those datas even if I found some partial solutions.<br>
+An another bad factor is the lack of datas. If I can suppose that the cyclist are more each year, I can’t do a clear analysis of the evolution if I don’t know the exact evolution and numbers. The bike path datas is lacking of informations like if a bike path has been suppress or not, sometime there are several rows of the same road names, same date of realization without explication why. 
+
+
+##Final Analysis:
+
+Despite those problems, I could manage to do some real analysis of the situation in Geneva. I have a better view of the situation and learn a lot of things. For example, I couldn't imagine that the motorbike was the principal vehicles whose bike have been involved with. An another information that I didn’t expect was the electric bike impact. I imagined that they were more dangerous and involved in accidents than the normal bike (respecting the proportion). I hope that the state will wake up and do more for the bike in the future, as we can see in the nordic countries or netherland.
+
